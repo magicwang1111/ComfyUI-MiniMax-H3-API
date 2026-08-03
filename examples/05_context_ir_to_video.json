@@ -2,14 +2,80 @@
   "id": "minimax-h3-context-ir-to-video",
   "revision": 0,
   "last_node_id": 5,
-  "last_link_id": 4,
+  "last_link_id": 3,
   "nodes": [
-    {"id": 1, "type": "MiniMax H3 Content Builder", "pos": [20, 20], "size": [420, 360], "flags": {}, "order": 0, "mode": 0, "inputs": [], "outputs": [{"name": "content", "type": "MINIMAX_H3_CONTENT", "links": [1], "slot_index": 0}], "properties": {"Node name for S&R": "MiniMax H3 Content Builder"}, "widgets_values": ["text", "Epic space opera trailer: a female captain watches the last fleet jump away, leaving her alone on the bridge.", "", "", "", "", ""]},
-    {"id": 2, "type": "MiniMax H3 Context IR", "pos": [480, 20], "size": [400, 330], "flags": {}, "order": 1, "mode": 0, "inputs": [{"name": "content", "type": "MINIMAX_H3_CONTENT", "link": 1}], "outputs": [{"name": "enhanced_prompt", "type": "STRING", "links": [2], "slot_index": 0}, {"name": "task_id", "type": "STRING", "links": null, "slot_index": 1}, {"name": "status", "type": "STRING", "links": null, "slot_index": 2}, {"name": "task_json", "type": "STRING", "links": null, "slot_index": 3}], "properties": {"Node name for S&R": "MiniMax H3 Context IR"}, "widgets_values": [5, "16:9"]},
-    {"id": 3, "type": "MiniMax H3 Content Builder", "pos": [930, 20], "size": [420, 360], "flags": {}, "order": 2, "mode": 0, "inputs": [{"name": "prompt_override", "type": "STRING", "link": 2}], "outputs": [{"name": "content", "type": "MINIMAX_H3_CONTENT", "links": [3], "slot_index": 0}], "properties": {"Node name for S&R": "MiniMax H3 Content Builder"}, "widgets_values": ["text", "Prompt supplied by Context IR", "", "", "", "", ""]},
-    {"id": 4, "type": "MiniMax H3 Generate Video", "pos": [1400, 20], "size": [400, 360], "flags": {}, "order": 3, "mode": 0, "inputs": [{"name": "content", "type": "MINIMAX_H3_CONTENT", "link": 3}], "outputs": [{"name": "video_url", "type": "STRING", "links": [4], "slot_index": 0}, {"name": "task_id", "type": "STRING", "links": null, "slot_index": 1}, {"name": "status", "type": "STRING", "links": null, "slot_index": 2}, {"name": "task_json", "type": "STRING", "links": null, "slot_index": 3}, {"name": "request_json", "type": "STRING", "links": null, "slot_index": 4}], "properties": {"Node name for S&R": "MiniMax H3 Generate Video"}, "widgets_values": ["2K", 5, "16:9", false]},
-    {"id": 5, "type": "MiniMax H3 Preview Video", "pos": [1850, 20], "size": [500, 600], "flags": {}, "order": 4, "mode": 0, "inputs": [{"name": "video_url", "type": "STRING", "link": 4}], "outputs": [{"name": "file_path", "type": "STRING", "links": null, "slot_index": 0}], "properties": {"Node name for S&R": "MiniMax H3 Preview Video"}, "widgets_values": []}
+    {
+      "id": 1,
+      "type": "MiniMax H3 Content Builder",
+      "pos": [20, 20],
+      "size": [440, 620],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "content", "type": "MINIMAX_H3_CONTENT", "links": [1], "slot_index": 0}],
+      "properties": {"Node name for S&R": "MiniMax H3 Content Builder"},
+      "widgets_values": ["Epic space opera trailer: a female captain watches the last fleet jump away, leaving her alone on the bridge."]
+    },
+    {
+      "id": 2,
+      "type": "MiniMax H3 Context IR",
+      "pos": [510, 20],
+      "size": [420, 340],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [{"name": "content", "type": "MINIMAX_H3_CONTENT", "link": 1}],
+      "outputs": [
+        {"name": "enhanced_prompt", "type": "STRING", "links": null, "slot_index": 0},
+        {"name": "task_id", "type": "STRING", "links": null, "slot_index": 1},
+        {"name": "status", "type": "STRING", "links": null, "slot_index": 2},
+        {"name": "task_json", "type": "STRING", "links": null, "slot_index": 3},
+        {"name": "enhanced_content", "type": "MINIMAX_H3_CONTENT", "links": [2], "slot_index": 4}
+      ],
+      "properties": {"Node name for S&R": "MiniMax H3 Context IR"},
+      "widgets_values": ["5", "16:9"]
+    },
+    {
+      "id": 4,
+      "type": "MiniMax H3 Generate Video",
+      "pos": [980, 20],
+      "size": [400, 340],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [{"name": "content", "type": "MINIMAX_H3_CONTENT", "link": 2}],
+      "outputs": [
+        {"name": "video_url", "type": "STRING", "links": [3], "slot_index": 0},
+        {"name": "task_id", "type": "STRING", "links": null, "slot_index": 1},
+        {"name": "status", "type": "STRING", "links": null, "slot_index": 2},
+        {"name": "task_json", "type": "STRING", "links": null, "slot_index": 3},
+        {"name": "request_json", "type": "STRING", "links": null, "slot_index": 4}
+      ],
+      "properties": {"Node name for S&R": "MiniMax H3 Generate Video"},
+      "widgets_values": ["2K", "5", "16:9"]
+    },
+    {
+      "id": 5,
+      "type": "MiniMax H3 Preview Video",
+      "pos": [1430, 20],
+      "size": [500, 600],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [{"name": "video_url", "type": "STRING", "link": 3}],
+      "outputs": [{"name": "file_path", "type": "STRING", "links": null, "slot_index": 0}],
+      "properties": {"Node name for S&R": "MiniMax H3 Preview Video"},
+      "widgets_values": []
+    }
   ],
-  "links": [[1, 1, 0, 2, 0, "MINIMAX_H3_CONTENT"], [2, 2, 0, 3, 0, "STRING"], [3, 3, 0, 4, 0, "MINIMAX_H3_CONTENT"], [4, 4, 0, 5, 0, "STRING"]],
-  "groups": [], "config": {}, "extra": {"ds": {"scale": 0.65, "offset": [0, 0]}, "frontendVersion": "1.42.8"}, "version": 0.4
+  "links": [
+    [1, 1, 0, 2, 0, "MINIMAX_H3_CONTENT"],
+    [2, 2, 4, 4, 0, "MINIMAX_H3_CONTENT"],
+    [3, 4, 0, 5, 0, "STRING"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {"ds": {"scale": 0.75, "offset": [0, 0]}, "frontendVersion": "1.42.8"},
+  "version": 0.4
 }

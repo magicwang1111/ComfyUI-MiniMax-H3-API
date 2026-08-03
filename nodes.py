@@ -21,6 +21,7 @@ NODE_CATEGORY = "MiniMax H3"
 MODEL = "MiniMax-H3"
 RATIOS = ["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
 RESOLUTIONS = ["768P", "2K"]
+DURATIONS = [str(value) for value in range(4, 16)]
 STATUSES = ["all", "queued", "running", "succeeded", "failed", "cancelled"]
 TASK_TYPES = ["all", "generation", "h3_context_ir", "regeneration"]
 DEFAULT_VIDEO_FILENAME_PREFIX = "video/MiniMax_%year%%month%%day%_%hour%%minute%%second%"
@@ -37,11 +38,6 @@ def _clean_optional(value):
 
 def _url_item(media_type, url, role):
     return {"type": media_type, media_type: {"url": url}, "role": role}
-
-
-def _add_urls(content, raw_urls, media_type, role):
-    for url in parse_url_list(raw_urls):
-        content.append(_url_item(media_type, url, role))
 
 
 def _content_kind(content):
@@ -88,23 +84,14 @@ class MiniMaxH3ContentBuilder:
     @classmethod
     def INPUT_TYPES(cls):
         optional = {
-            "prompt_override": ("STRING", {"forceInput": True}),
             "first_frame": ("IMAGE",),
             "last_frame": ("IMAGE",),
         }
         optional.update({f"image_{index}": ("IMAGE",) for index in range(1, 10)})
         optional.update({f"video_{index}": ("VIDEO",) for index in range(1, 4)})
         optional.update({f"audio_{index}": ("AUDIO",) for index in range(1, 4)})
-        optional.update({
-            "first_frame_url": ("STRING", {"default": ""}),
-            "last_frame_url": ("STRING", {"default": ""}),
-            "reference_image_urls": ("STRING", {"multiline": True, "default": ""}),
-            "reference_video_urls": ("STRING", {"multiline": True, "default": ""}),
-            "reference_audio_urls": ("STRING", {"multiline": True, "default": ""}),
-        })
         return {
             "required": {
-                "mode": (["text", "first_last_frames", "reference"], {"default": "text"}),
                 "prompt": ("STRING", {"multiline": True, "default": ""}),
             },
             "optional": optional,
@@ -117,71 +104,42 @@ class MiniMaxH3ContentBuilder:
 
     def build(
         self,
-        mode,
         prompt,
-        prompt_override=None,
         first_frame=None,
         last_frame=None,
-        first_frame_url="",
-        last_frame_url="",
-        reference_image_urls="",
-        reference_video_urls="",
-        reference_audio_urls="",
         **kwargs,
     ):
-        effective_prompt = prompt_override if _clean_optional(prompt_override) else prompt
-        content = [{"type": "text", "text": validate_prompt(effective_prompt)}]
+        content = [{"type": "text", "text": validate_prompt(prompt)}]
         reference_images = [kwargs.get(f"image_{index}") for index in range(1, 10)]
         reference_videos = [kwargs.get(f"video_{index}") for index in range(1, 4)]
         reference_audios = [kwargs.get(f"audio_{index}") for index in range(1, 4)]
-        frame_inputs = any((first_frame is not None, last_frame is not None, _clean_optional(first_frame_url), _clean_optional(last_frame_url)))
+        frame_inputs = first_frame is not None or last_frame is not None
         reference_inputs = any((
             any(item is not None for item in reference_images),
-            _clean_optional(reference_image_urls),
             any(item is not None for item in reference_videos),
-            _clean_optional(reference_video_urls),
             any(item is not None for item in reference_audios),
-            _clean_optional(reference_audio_urls),
         ))
 
-        if mode == "text":
-            if frame_inputs or reference_inputs:
-                raise ValueError("text mode cannot include frame or reference media.")
-            return (content,)
-
-        if mode == "first_last_frames":
-            if reference_inputs:
-                raise ValueError("Frame generation cannot include reference media.")
-            if first_frame is not None and _clean_optional(first_frame_url):
-                raise ValueError("Use first_frame or first_frame_url, not both.")
-            if last_frame is not None and _clean_optional(last_frame_url):
-                raise ValueError("Use last_frame or last_frame_url, not both.")
+        if frame_inputs and reference_inputs:
+            raise ValueError("First/last frames cannot be mixed with reference media.")
+        if frame_inputs:
             if first_frame is not None:
                 content.append(_url_item("image_url", first_image_to_data_uri(first_frame), "first_frame"))
-            elif _clean_optional(first_frame_url):
-                content.append(_url_item("image_url", first_frame_url.strip(), "first_frame"))
             if last_frame is not None:
                 content.append(_url_item("image_url", first_image_to_data_uri(last_frame), "last_frame"))
-            elif _clean_optional(last_frame_url):
-                content.append(_url_item("image_url", last_frame_url.strip(), "last_frame"))
-            if len(content) == 1:
-                raise ValueError("first_last_frames mode requires a first or last frame.")
             return (content,)
 
-        if frame_inputs:
-            raise ValueError("Reference generation cannot include first/last frames.")
+        if not reference_inputs:
+            return (content,)
         for image in reference_images:
             if image is not None:
                 content.append(_url_item("image_url", first_image_to_data_uri(image), "reference_image"))
-        _add_urls(content, reference_image_urls, "image_url", "reference_image")
         for video in reference_videos:
             if video is not None:
                 content.append(_url_item("video_url", video_to_data_uri(video), "reference_video"))
-        _add_urls(content, reference_video_urls, "video_url", "reference_video")
         for audio in reference_audios:
             if audio is not None:
                 content.append(_url_item("audio_url", audio_to_data_uri(audio), "reference_audio"))
-        _add_urls(content, reference_audio_urls, "audio_url", "reference_audio")
 
         image_count = sum(item.get("role") == "reference_image" for item in content)
         video_count = sum(item.get("role") == "reference_video" for item in content)
@@ -204,9 +162,8 @@ class MiniMaxH3GenerateVideo:
             "required": {
                 "content": ("MINIMAX_H3_CONTENT",),
                 "resolution": (RESOLUTIONS, {"default": "2K"}),
-                "duration": ("INT", {"default": 5, "min": 4, "max": 15, "step": 1}),
+                "duration": (DURATIONS, {"default": "5"}),
                 "ratio": (RATIOS, {"default": "16:9"}),
-                "aigc_watermark": ("BOOLEAN", {"default": False}),
             },
         }
 
@@ -215,14 +172,14 @@ class MiniMaxH3GenerateVideo:
     FUNCTION = "generate"
     CATEGORY = NODE_CATEGORY
 
-    def generate(self, content, resolution, duration, ratio, aigc_watermark):
+    def generate(self, content, resolution, duration, ratio):
         payload = {
             "model": MODEL,
             "content": content,
             "resolution": resolution,
             "duration": int(duration),
             "ratio": _normalize_ratio(content, ratio),
-            "aigc_watermark": bool(aigc_watermark),
+            "aigc_watermark": False,
         }
         validate_request_size(payload)
         request_json = json.dumps(payload, ensure_ascii=False)
@@ -237,13 +194,13 @@ class MiniMaxH3ContextIR:
         return {
             "required": {
                 "content": ("MINIMAX_H3_CONTENT",),
-                "duration": ("INT", {"default": 5, "min": 4, "max": 15, "step": 1}),
+                "duration": (DURATIONS, {"default": "5"}),
                 "ratio": (RATIOS, {"default": "16:9"}),
             },
         }
 
-    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING")
-    RETURN_NAMES = ("enhanced_prompt", "task_id", "status", "task_json")
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING", "MINIMAX_H3_CONTENT")
+    RETURN_NAMES = ("enhanced_prompt", "task_id", "status", "task_json", "enhanced_content")
     FUNCTION = "create"
     CATEGORY = NODE_CATEGORY
 
@@ -262,7 +219,15 @@ class MiniMaxH3ContextIR:
                 raise RuntimeError("MiniMax create response did not include task_id.")
             final_payload = client.wait_task(task_id)
         _, prompt, status, _, task_json = _task_fields(final_payload)
-        return prompt, task_id, status, task_json
+        enhanced_content = []
+        replaced_prompt = False
+        for item in content:
+            if item.get("type") == "text" and not replaced_prompt:
+                enhanced_content.append({"type": "text", "text": validate_prompt(prompt)})
+                replaced_prompt = True
+            else:
+                enhanced_content.append(item)
+        return prompt, task_id, status, task_json, enhanced_content
 
 
 class MiniMaxH3Regenerate2K:
@@ -272,7 +237,6 @@ class MiniMaxH3Regenerate2K:
             "required": {
                 "generation_request_json": ("STRING", {"forceInput": True}),
                 "base_video_url": ("STRING", {"forceInput": True}),
-                "aigc_watermark": ("BOOLEAN", {"default": False}),
             },
             "optional": {"base_video": ("VIDEO",)},
         }
@@ -286,7 +250,6 @@ class MiniMaxH3Regenerate2K:
         self,
         generation_request_json,
         base_video_url,
-        aigc_watermark,
         base_video=None,
     ):
         try:
@@ -315,7 +278,7 @@ class MiniMaxH3Regenerate2K:
             "model": MODEL,
             "content": content,
             "resolution": "2K",
-            "aigc_watermark": bool(aigc_watermark),
+            "aigc_watermark": False,
         }
         validate_request_size(payload)
         with _client() as client:

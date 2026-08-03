@@ -15,7 +15,7 @@
       "inputs": [],
       "outputs": [{"name": "content", "type": "MINIMAX_H3_CONTENT", "links": [1], "slot_index": 0}],
       "properties": {"Node name for S&R": "MiniMax H3 Content Builder"},
-      "widgets_values": ["text", "A cinematic wide shot of a small sailboat crossing a glowing ocean at sunset, gentle camera push-in.", "", "", "", "", ""]
+      "widgets_values": ["A cinematic wide shot of a small sailboat crossing a glowing ocean at sunset, gentle camera push-in."]
     },
     {
       "id": 2,
@@ -34,7 +34,7 @@
         {"name": "request_json", "type": "STRING", "links": null, "slot_index": 4}
       ],
       "properties": {"Node name for S&R": "MiniMax H3 Generate Video"},
-      "widgets_values": ["2K", 5, "16:9", false]
+      "widgets_values": ["2K", "5", "16:9"]
     },
     {
       "id": 3,

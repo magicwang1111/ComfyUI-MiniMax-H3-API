@@ -22,20 +22,22 @@ Copy `local.example.json` to `local.json` and add your MiniMax API key:
 
 - **MiniMax H3 Content Builder** builds and validates the multimodal `content` array.
 - **MiniMax H3 Generate Video** creates a video task and automatically polls until completion.
-- **MiniMax H3 Context IR** creates an asynchronous prompt-enhancement task.
+- **MiniMax H3 Context IR** creates an asynchronous prompt-enhancement task and returns reusable enhanced content.
 - **MiniMax H3 Regenerate 2K** reuses an exact 768P generation request and adds the source video.
 - **MiniMax H3 Query Task** queries a task created during the last seven days.
 - **MiniMax H3 List Tasks** lists and filters recent tasks.
 - **MiniMax H3 Cancel Delete Task** cancels queued tasks or deletes succeeded/failed task records.
 - **MiniMax H3 Preview Video** downloads the result as `video/MiniMax_日期_时间.mp4` and scales the preview with the node size.
 
-## Content Builder modes
+## Content Builder inputs
 
-- `text`: prompt only. Choose a concrete ratio in the generation/Context IR node.
-- `first_last_frames`: accepts a first frame, a last frame, or both. The API ratio is automatically set to `adaptive`.
-- `reference`: exposes `image_1`–`image_9`, `video_1`–`video_3`, and `audio_1`–`audio_3`. At least one image or video is required.
+- Prompt only creates text-to-video content.
+- Connecting `first_frame`, `last_frame`, or both creates frame-guided content and automatically uses the `adaptive` ratio.
+- Connecting `image_1`–`image_9`, `video_1`–`video_3`, or `audio_1`–`audio_3` creates reference content. At least one image or video is required.
 
-Native ComfyUI `IMAGE`, `VIDEO`, and `AUDIO` inputs are converted to MiniMax data URIs. Public URLs and `mm_file://` references can be entered one per line in the URL fields. For large media, URLs are recommended because the complete JSON request must not exceed 64 MB.
+The content mode is inferred from connected inputs. Native ComfyUI `IMAGE`, `VIDEO`, and `AUDIO` inputs are converted to MiniMax data URIs. The complete JSON request must not exceed 64 MB.
+
+Polling is always enabled. AIGC watermarking is always disabled. These internal settings are not shown in the node UI.
 
 ## Regeneration
 
