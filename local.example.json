@@ -1,0 +1,8 @@
+{
+  "api_key": "YOUR_MINIMAX_API_KEY",
+  "base_url": "https://api.minimaxi.com",
+  "poll_interval": 5,
+  "request_timeout": 60,
+  "max_wait_seconds": 3600
+}
+

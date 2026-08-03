@@ -1,0 +1,467 @@
+import json
+import os
+import urllib.parse
+
+import folder_paths
+import requests
+
+from .client import MiniMaxClient, load_config
+from .media import (
+    audio_to_data_uri,
+    first_image_to_data_uri,
+    parse_url_list,
+    validate_prompt,
+    validate_request_size,
+    video_to_data_uri,
+)
+
+
+NODE_PREFIX = "MiniMax H3"
+NODE_CATEGORY = "MiniMax H3"
+MODEL = "MiniMax-H3"
+RATIOS = ["adaptive", "21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]
+RESOLUTIONS = ["768P", "2K"]
+STATUSES = ["all", "queued", "running", "succeeded", "failed", "cancelled"]
+TASK_TYPES = ["all", "generation", "h3_context_ir", "regeneration"]
+DEFAULT_VIDEO_FILENAME_PREFIX = "video/MiniMax_%year%%month%%day%_%hour%%minute%%second%"
+
+
+def _client():
+    return MiniMaxClient(load_config())
+
+
+def _clean_optional(value):
+    value = str(value or "").strip()
+    return value or None
+
+
+def _url_item(media_type, url, role):
+    return {"type": media_type, media_type: {"url": url}, "role": role}
+
+
+def _add_urls(content, raw_urls, media_type, role):
+    for url in parse_url_list(raw_urls):
+        content.append(_url_item(media_type, url, role))
+
+
+def _content_kind(content):
+    roles = {item.get("role") for item in content if item.get("role")}
+    if roles & {"first_frame", "last_frame"}:
+        return "frames"
+    if roles & {"reference_image", "reference_video", "reference_audio"}:
+        return "reference"
+    return "text"
+
+
+def _normalize_ratio(content, ratio):
+    kind = _content_kind(content)
+    if kind == "text" and ratio == "adaptive":
+        raise ValueError("Text-to-video requires a concrete ratio; adaptive is not allowed.")
+    if kind == "frames":
+        return "adaptive"
+    return ratio
+
+
+def _task_fields(payload):
+    task = payload.get("task") or {}
+    content = task.get("content") or {}
+    return (
+        str(content.get("url") or ""),
+        str(content.get("prompt") or ""),
+        str(task.get("status") or ""),
+        str(task.get("task_type") or ""),
+        json.dumps(payload, ensure_ascii=False),
+    )
+
+
+def _create_and_wait(create_method, payload):
+    response = create_method(payload)
+    task_id = str(response.get("task_id") or "")
+    if not task_id:
+        raise RuntimeError("MiniMax create response did not include task_id.")
+    final_payload = create_method.__self__.wait_task(task_id)
+    video_url, _, status, _, task_json = _task_fields(final_payload)
+    return video_url, task_id, status, task_json
+
+
+class MiniMaxH3ContentBuilder:
+    @classmethod
+    def INPUT_TYPES(cls):
+        optional = {
+            "prompt_override": ("STRING", {"forceInput": True}),
+            "first_frame": ("IMAGE",),
+            "last_frame": ("IMAGE",),
+        }
+        optional.update({f"image_{index}": ("IMAGE",) for index in range(1, 10)})
+        optional.update({f"video_{index}": ("VIDEO",) for index in range(1, 4)})
+        optional.update({f"audio_{index}": ("AUDIO",) for index in range(1, 4)})
+        optional.update({
+            "first_frame_url": ("STRING", {"default": ""}),
+            "last_frame_url": ("STRING", {"default": ""}),
+            "reference_image_urls": ("STRING", {"multiline": True, "default": ""}),
+            "reference_video_urls": ("STRING", {"multiline": True, "default": ""}),
+            "reference_audio_urls": ("STRING", {"multiline": True, "default": ""}),
+        })
+        return {
+            "required": {
+                "mode": (["text", "first_last_frames", "reference"], {"default": "text"}),
+                "prompt": ("STRING", {"multiline": True, "default": ""}),
+            },
+            "optional": optional,
+        }
+
+    RETURN_TYPES = ("MINIMAX_H3_CONTENT",)
+    RETURN_NAMES = ("content",)
+    FUNCTION = "build"
+    CATEGORY = NODE_CATEGORY
+
+    def build(
+        self,
+        mode,
+        prompt,
+        prompt_override=None,
+        first_frame=None,
+        last_frame=None,
+        first_frame_url="",
+        last_frame_url="",
+        reference_image_urls="",
+        reference_video_urls="",
+        reference_audio_urls="",
+        **kwargs,
+    ):
+        effective_prompt = prompt_override if _clean_optional(prompt_override) else prompt
+        content = [{"type": "text", "text": validate_prompt(effective_prompt)}]
+        reference_images = [kwargs.get(f"image_{index}") for index in range(1, 10)]
+        reference_videos = [kwargs.get(f"video_{index}") for index in range(1, 4)]
+        reference_audios = [kwargs.get(f"audio_{index}") for index in range(1, 4)]
+        frame_inputs = any((first_frame is not None, last_frame is not None, _clean_optional(first_frame_url), _clean_optional(last_frame_url)))
+        reference_inputs = any((
+            any(item is not None for item in reference_images),
+            _clean_optional(reference_image_urls),
+            any(item is not None for item in reference_videos),
+            _clean_optional(reference_video_urls),
+            any(item is not None for item in reference_audios),
+            _clean_optional(reference_audio_urls),
+        ))
+
+        if mode == "text":
+            if frame_inputs or reference_inputs:
+                raise ValueError("text mode cannot include frame or reference media.")
+            return (content,)
+
+        if mode == "first_last_frames":
+            if reference_inputs:
+                raise ValueError("Frame generation cannot include reference media.")
+            if first_frame is not None and _clean_optional(first_frame_url):
+                raise ValueError("Use first_frame or first_frame_url, not both.")
+            if last_frame is not None and _clean_optional(last_frame_url):
+                raise ValueError("Use last_frame or last_frame_url, not both.")
+            if first_frame is not None:
+                content.append(_url_item("image_url", first_image_to_data_uri(first_frame), "first_frame"))
+            elif _clean_optional(first_frame_url):
+                content.append(_url_item("image_url", first_frame_url.strip(), "first_frame"))
+            if last_frame is not None:
+                content.append(_url_item("image_url", first_image_to_data_uri(last_frame), "last_frame"))
+            elif _clean_optional(last_frame_url):
+                content.append(_url_item("image_url", last_frame_url.strip(), "last_frame"))
+            if len(content) == 1:
+                raise ValueError("first_last_frames mode requires a first or last frame.")
+            return (content,)
+
+        if frame_inputs:
+            raise ValueError("Reference generation cannot include first/last frames.")
+        for image in reference_images:
+            if image is not None:
+                content.append(_url_item("image_url", first_image_to_data_uri(image), "reference_image"))
+        _add_urls(content, reference_image_urls, "image_url", "reference_image")
+        for video in reference_videos:
+            if video is not None:
+                content.append(_url_item("video_url", video_to_data_uri(video), "reference_video"))
+        _add_urls(content, reference_video_urls, "video_url", "reference_video")
+        for audio in reference_audios:
+            if audio is not None:
+                content.append(_url_item("audio_url", audio_to_data_uri(audio), "reference_audio"))
+        _add_urls(content, reference_audio_urls, "audio_url", "reference_audio")
+
+        image_count = sum(item.get("role") == "reference_image" for item in content)
+        video_count = sum(item.get("role") == "reference_video" for item in content)
+        audio_count = sum(item.get("role") == "reference_audio" for item in content)
+        if image_count > 9:
+            raise ValueError("At most 9 reference images are supported.")
+        if video_count > 3:
+            raise ValueError("At most 3 reference videos are supported.")
+        if audio_count > 3:
+            raise ValueError("At most 3 reference audios are supported.")
+        if not image_count and not video_count:
+            raise ValueError("Reference mode requires at least one reference image or video; audio cannot be used alone.")
+        return (content,)
+
+
+class MiniMaxH3GenerateVideo:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "content": ("MINIMAX_H3_CONTENT",),
+                "resolution": (RESOLUTIONS, {"default": "2K"}),
+                "duration": ("INT", {"default": 5, "min": 4, "max": 15, "step": 1}),
+                "ratio": (RATIOS, {"default": "16:9"}),
+                "aigc_watermark": ("BOOLEAN", {"default": False}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING", "STRING")
+    RETURN_NAMES = ("video_url", "task_id", "status", "task_json", "request_json")
+    FUNCTION = "generate"
+    CATEGORY = NODE_CATEGORY
+
+    def generate(self, content, resolution, duration, ratio, aigc_watermark):
+        payload = {
+            "model": MODEL,
+            "content": content,
+            "resolution": resolution,
+            "duration": int(duration),
+            "ratio": _normalize_ratio(content, ratio),
+            "aigc_watermark": bool(aigc_watermark),
+        }
+        validate_request_size(payload)
+        request_json = json.dumps(payload, ensure_ascii=False)
+        with _client() as client:
+            video_url, task_id, status, task_json = _create_and_wait(client.create_video, payload)
+        return video_url, task_id, status, task_json, request_json
+
+
+class MiniMaxH3ContextIR:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "content": ("MINIMAX_H3_CONTENT",),
+                "duration": ("INT", {"default": 5, "min": 4, "max": 15, "step": 1}),
+                "ratio": (RATIOS, {"default": "16:9"}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING")
+    RETURN_NAMES = ("enhanced_prompt", "task_id", "status", "task_json")
+    FUNCTION = "create"
+    CATEGORY = NODE_CATEGORY
+
+    def create(self, content, duration, ratio):
+        payload = {
+            "model": MODEL,
+            "content": content,
+            "duration": int(duration),
+            "ratio": _normalize_ratio(content, ratio),
+        }
+        validate_request_size(payload)
+        with _client() as client:
+            response = client.create_context_ir(payload)
+            task_id = str(response.get("task_id") or "")
+            if not task_id:
+                raise RuntimeError("MiniMax create response did not include task_id.")
+            final_payload = client.wait_task(task_id)
+        _, prompt, status, _, task_json = _task_fields(final_payload)
+        return prompt, task_id, status, task_json
+
+
+class MiniMaxH3Regenerate2K:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "generation_request_json": ("STRING", {"forceInput": True}),
+                "base_video_url": ("STRING", {"forceInput": True}),
+                "aigc_watermark": ("BOOLEAN", {"default": False}),
+            },
+            "optional": {"base_video": ("VIDEO",)},
+        }
+
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING")
+    RETURN_NAMES = ("video_url", "task_id", "status", "task_json")
+    FUNCTION = "regenerate"
+    CATEGORY = NODE_CATEGORY
+
+    def regenerate(
+        self,
+        generation_request_json,
+        base_video_url,
+        aigc_watermark,
+        base_video=None,
+    ):
+        try:
+            source_request = json.loads(generation_request_json)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"generation_request_json is not valid JSON: {exc}") from exc
+        if source_request.get("model") != MODEL:
+            raise ValueError("generation_request_json must use MiniMax-H3.")
+        if source_request.get("resolution") != "768P":
+            raise ValueError("Video regeneration requires a source request generated at 768P.")
+        original_content = source_request.get("content")
+        if not isinstance(original_content, list) or not original_content:
+            raise ValueError("generation_request_json does not contain valid content.")
+        if any(item.get("role") == "base_video" for item in original_content if isinstance(item, dict)):
+            raise ValueError("generation_request_json already contains a base_video.")
+        if base_video is not None and _clean_optional(base_video_url):
+            raise ValueError("Use base_video or base_video_url, not both.")
+        if base_video is not None:
+            video_url = video_to_data_uri(base_video)
+        else:
+            video_url = _clean_optional(base_video_url)
+        if not video_url:
+            raise ValueError("base_video or base_video_url is required.")
+        content = list(original_content) + [_url_item("video_url", video_url, "base_video")]
+        payload = {
+            "model": MODEL,
+            "content": content,
+            "resolution": "2K",
+            "aigc_watermark": bool(aigc_watermark),
+        }
+        validate_request_size(payload)
+        with _client() as client:
+            return _create_and_wait(client.create_regeneration, payload)
+
+
+class MiniMaxH3QueryTask:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"task_id": ("STRING", {"default": ""})}}
+
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING", "STRING")
+    RETURN_NAMES = ("video_url", "enhanced_prompt", "status", "task_type", "task_json")
+    FUNCTION = "query"
+    CATEGORY = NODE_CATEGORY
+
+    def query(self, task_id):
+        with _client() as client:
+            return _task_fields(client.query_task(task_id))
+
+
+class MiniMaxH3ListTasks:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "page_num": ("INT", {"default": 1, "min": 1, "max": 100000}),
+                "page_size": ("INT", {"default": 20, "min": 1, "max": 100}),
+                "status": (STATUSES, {"default": "all"}),
+                "task_type": (TASK_TYPES, {"default": "all"}),
+                "task_ids": ("STRING", {"multiline": True, "default": ""}),
+                "model": ("STRING", {"default": MODEL}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING", "INT")
+    RETURN_NAMES = ("items_json", "total")
+    FUNCTION = "list"
+    CATEGORY = NODE_CATEGORY
+    OUTPUT_NODE = True
+
+    def list(self, page_num, page_size, status, task_type, task_ids, model):
+        with _client() as client:
+            payload = client.list_tasks(
+                page_num=page_num,
+                page_size=page_size,
+                status="" if status == "all" else status,
+                task_ids=parse_url_list(task_ids),
+                model=_clean_optional(model) or "",
+                task_type="" if task_type == "all" else task_type,
+            )
+        return json.dumps(payload.get("items") or [], ensure_ascii=False), int(payload.get("total") or 0)
+
+
+class MiniMaxH3CancelDeleteTask:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {"task_id": ("STRING", {"default": ""})}}
+
+    RETURN_TYPES = ("STRING", "STRING", "STRING")
+    RETURN_NAMES = ("action", "status", "result_json")
+    FUNCTION = "cancel_or_delete"
+    CATEGORY = NODE_CATEGORY
+    OUTPUT_NODE = True
+
+    def cancel_or_delete(self, task_id):
+        with _client() as client:
+            payload = client.delete_task(task_id)
+        return (
+            str(payload.get("action") or ""),
+            str(payload.get("status") or ""),
+            json.dumps(payload, ensure_ascii=False),
+        )
+
+
+def _saved_result(filename, subfolder, folder_type):
+    return {"filename": filename, "subfolder": subfolder, "type": folder_type}
+
+
+def _local_media_url(filename, subfolder, folder_type):
+    query = [
+        f"type={urllib.parse.quote(str(folder_type), safe='')}",
+        f"filename={urllib.parse.quote(str(filename), safe='')}",
+    ]
+    if subfolder:
+        query.append(f"subfolder={urllib.parse.quote(str(subfolder), safe='')}")
+    return "/api/view?" + "&".join(query)
+
+
+class MiniMaxH3PreviewVideo:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "video_url": ("STRING", {"forceInput": True}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("file_path",)
+    OUTPUT_NODE = True
+    FUNCTION = "download"
+    CATEGORY = NODE_CATEGORY
+
+    def download(self, video_url):
+        video_url = str(video_url or "").strip()
+        if not video_url:
+            raise ValueError("video_url is required.")
+        output_dir = folder_paths.get_output_directory()
+        full_output_folder, filename, counter, subfolder, _ = folder_paths.get_save_image_path(
+            DEFAULT_VIDEO_FILENAME_PREFIX, output_dir
+        )
+        os.makedirs(full_output_folder, exist_ok=True)
+        file = f"{filename}_{counter:05}_.mp4"
+        file_path = os.path.join(full_output_folder, file)
+        try:
+            with requests.get(video_url, stream=True, timeout=120) as response:
+                response.raise_for_status()
+                with open(file_path, "wb") as handle:
+                    for chunk in response.iter_content(chunk_size=1024 * 1024):
+                        if chunk:
+                            handle.write(chunk)
+        except Exception:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            raise
+        preview_url = _local_media_url(file, subfolder, "output")
+        return {
+            "ui": {
+                "images": [_saved_result(file, subfolder, "output")],
+                "video_url": [preview_url],
+                "animated": (True,),
+            },
+            "result": (file_path,),
+        }
+
+
+NODE_CLASS_MAPPINGS = {
+    f"{NODE_PREFIX} Content Builder": MiniMaxH3ContentBuilder,
+    f"{NODE_PREFIX} Generate Video": MiniMaxH3GenerateVideo,
+    f"{NODE_PREFIX} Context IR": MiniMaxH3ContextIR,
+    f"{NODE_PREFIX} Regenerate 2K": MiniMaxH3Regenerate2K,
+    f"{NODE_PREFIX} Query Task": MiniMaxH3QueryTask,
+    f"{NODE_PREFIX} List Tasks": MiniMaxH3ListTasks,
+    f"{NODE_PREFIX} Cancel Delete Task": MiniMaxH3CancelDeleteTask,
+    f"{NODE_PREFIX} Preview Video": MiniMaxH3PreviewVideo,
+}
+
+NODE_DISPLAY_NAME_MAPPINGS = {key: key for key in NODE_CLASS_MAPPINGS}
