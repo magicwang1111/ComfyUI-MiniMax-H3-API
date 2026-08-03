@@ -94,18 +94,39 @@ class FakeClient:
         return {"task_id": "task-1"}
 
     def wait_task(self, task_id):
-        return {"task": {"id": task_id, "status": "succeeded", "task_type": "generation", "content": {"url": "https://cdn/result.mp4"}}}
+        return {
+            "task": {
+                "id": task_id,
+                "status": "succeeded",
+                "task_type": "generation",
+                "content": {"url": "https://cdn/result.mp4"},
+                "resolution": "2K",
+                "usage": {"total_seconds": 5, "input_image_count": 0},
+            }
+        }
 
 
 def test_generate_node_builds_payload(monkeypatch):
     fake = FakeClient()
     monkeypatch.setattr(nodes, "_client", lambda: fake)
     content = [{"type": "text", "text": "hello"}]
-    result = nodes.MiniMaxH3GenerateVideo().generate(content, "2K", 5, "16:9")
+    response = nodes.MiniMaxH3GenerateVideo().generate(content, "2K", 5, "16:9")
+    result = response["result"]
     assert result[:3] == ("https://cdn/result.mp4", "task-1", "succeeded")
     assert json.loads(result[4])["resolution"] == "2K"
+    assert response["ui"]["minimax_h3_cost"] == ["本次费用：¥4.00（约 571.43 积分）"]
     assert fake.payload["ratio"] == "16:9"
     assert fake.payload["aigc_watermark"] is False
+
+
+def test_generation_cost_includes_reference_video_and_extra_images():
+    payload = {
+        "task": {
+            "resolution": "768P",
+            "usage": {"input_seconds": 3, "output_seconds": 5, "input_image_count": 7},
+        }
+    }
+    assert nodes._generation_cost_summary(payload, "2K") == "本次费用：¥4.40（约 628.57 积分）"
 
 
 def test_regeneration_rejects_non_768p_request():

@@ -25,6 +25,9 @@ DURATIONS = [str(value) for value in range(4, 16)]
 STATUSES = ["all", "queued", "running", "succeeded", "failed", "cancelled"]
 TASK_TYPES = ["all", "generation", "h3_context_ir", "regeneration"]
 DEFAULT_VIDEO_FILENAME_PREFIX = "video/MiniMax_%year%%month%%day%_%hour%%minute%%second%"
+GENERATION_RATES_CNY_PER_SECOND = {"768P": 0.50, "2K": 0.80}
+EXTRA_IMAGE_RATE_CNY = 0.20
+CREDITS_PER_CNY = 1000 / 7
 
 
 def _client():
@@ -70,14 +73,36 @@ def _task_fields(payload):
     )
 
 
-def _create_and_wait(create_method, payload):
+def _submit_and_wait(create_method, payload):
     response = create_method(payload)
     task_id = str(response.get("task_id") or "")
     if not task_id:
         raise RuntimeError("MiniMax create response did not include task_id.")
     final_payload = create_method.__self__.wait_task(task_id)
+    return task_id, final_payload
+
+
+def _create_and_wait(create_method, payload):
+    task_id, final_payload = _submit_and_wait(create_method, payload)
     video_url, _, status, _, task_json = _task_fields(final_payload)
     return video_url, task_id, status, task_json
+
+
+def _generation_cost_summary(payload, fallback_resolution):
+    task = payload.get("task") or {}
+    usage = task.get("usage") or {}
+    resolution = str(task.get("resolution") or fallback_resolution)
+    rate = GENERATION_RATES_CNY_PER_SECOND.get(resolution)
+    total_seconds = usage.get("total_seconds")
+    if total_seconds is None:
+        total_seconds = (usage.get("input_seconds") or 0) + (usage.get("output_seconds") or 0)
+    if rate is None or not total_seconds:
+        return "本次费用：API 未返回可计算的用量"
+
+    image_count = int(usage.get("input_image_count") or 0)
+    cost = float(total_seconds) * rate + max(image_count - 5, 0) * EXTRA_IMAGE_RATE_CNY
+    credits = cost * CREDITS_PER_CNY
+    return f"本次费用：¥{cost:.2f}（约 {credits:.2f} 积分）"
 
 
 class MiniMaxH3ContentBuilder:
@@ -184,8 +209,12 @@ class MiniMaxH3GenerateVideo:
         validate_request_size(payload)
         request_json = json.dumps(payload, ensure_ascii=False)
         with _client() as client:
-            video_url, task_id, status, task_json = _create_and_wait(client.create_video, payload)
-        return video_url, task_id, status, task_json, request_json
+            task_id, final_payload = _submit_and_wait(client.create_video, payload)
+        video_url, _, status, _, task_json = _task_fields(final_payload)
+        return {
+            "ui": {"minimax_h3_cost": [_generation_cost_summary(final_payload, resolution)]},
+            "result": (video_url, task_id, status, task_json, request_json),
+        }
 
 
 class MiniMaxH3ContextIR:
