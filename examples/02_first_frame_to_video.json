@@ -1,0 +1,65 @@
+{
+  "id": "minimax-h3-first-frame",
+  "revision": 0,
+  "last_node_id": 4,
+  "last_link_id": 3,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "LoadImage",
+      "pos": [20, 20],
+      "size": [320, 320],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [1], "slot_index": 0}, {"name": "MASK", "type": "MASK", "links": null, "slot_index": 1}],
+      "properties": {"Node name for S&R": "LoadImage"},
+      "widgets_values": ["input.png", "image"]
+    },
+    {
+      "id": 2,
+      "type": "MiniMax H3 Content Builder",
+      "pos": [390, 20],
+      "size": [440, 420],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [{"name": "first_frame", "type": "IMAGE", "link": 1}],
+      "outputs": [{"name": "content", "type": "MINIMAX_H3_CONTENT", "links": [2], "slot_index": 0}],
+      "properties": {"Node name for S&R": "MiniMax H3 Content Builder"},
+      "widgets_values": ["first_last_frames", "The camera slowly circles the subject while wind moves the clothing naturally.", "", "", "", "", ""]
+    },
+    {
+      "id": 3,
+      "type": "MiniMax H3 Generate Video",
+      "pos": [880, 20],
+      "size": [400, 360],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [{"name": "content", "type": "MINIMAX_H3_CONTENT", "link": 2}],
+      "outputs": [{"name": "video_url", "type": "STRING", "links": [3], "slot_index": 0}, {"name": "task_id", "type": "STRING", "links": null, "slot_index": 1}, {"name": "status", "type": "STRING", "links": null, "slot_index": 2}, {"name": "task_json", "type": "STRING", "links": null, "slot_index": 3}, {"name": "request_json", "type": "STRING", "links": null, "slot_index": 4}],
+      "properties": {"Node name for S&R": "MiniMax H3 Generate Video"},
+      "widgets_values": ["2K", 5, "adaptive", false]
+    },
+    {
+      "id": 4,
+      "type": "MiniMax H3 Preview Video",
+      "pos": [1330, 20],
+      "size": [500, 600],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [{"name": "video_url", "type": "STRING", "link": 3}],
+      "outputs": [{"name": "file_path", "type": "STRING", "links": null, "slot_index": 0}],
+      "properties": {"Node name for S&R": "MiniMax H3 Preview Video"},
+      "widgets_values": []
+    }
+  ],
+  "links": [[1, 1, 0, 2, 0, "IMAGE"], [2, 2, 0, 3, 0, "MINIMAX_H3_CONTENT"], [3, 3, 0, 4, 0, "STRING"]],
+  "groups": [],
+  "config": {},
+  "extra": {"ds": {"scale": 0.75, "offset": [0, 0]}, "frontendVersion": "1.42.8"},
+  "version": 0.4
+}

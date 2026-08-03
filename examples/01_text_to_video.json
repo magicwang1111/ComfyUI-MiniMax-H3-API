@@ -1,0 +1,58 @@
+{
+  "id": "minimax-h3-text-to-video",
+  "revision": 0,
+  "last_node_id": 3,
+  "last_link_id": 2,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "MiniMax H3 Content Builder",
+      "pos": [20, 20],
+      "size": [420, 360],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "content", "type": "MINIMAX_H3_CONTENT", "links": [1], "slot_index": 0}],
+      "properties": {"Node name for S&R": "MiniMax H3 Content Builder"},
+      "widgets_values": ["text", "A cinematic wide shot of a small sailboat crossing a glowing ocean at sunset, gentle camera push-in.", "", "", "", "", ""]
+    },
+    {
+      "id": 2,
+      "type": "MiniMax H3 Generate Video",
+      "pos": [500, 20],
+      "size": [400, 360],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [{"name": "content", "type": "MINIMAX_H3_CONTENT", "link": 1}],
+      "outputs": [
+        {"name": "video_url", "type": "STRING", "links": [2], "slot_index": 0},
+        {"name": "task_id", "type": "STRING", "links": null, "slot_index": 1},
+        {"name": "status", "type": "STRING", "links": null, "slot_index": 2},
+        {"name": "task_json", "type": "STRING", "links": null, "slot_index": 3},
+        {"name": "request_json", "type": "STRING", "links": null, "slot_index": 4}
+      ],
+      "properties": {"Node name for S&R": "MiniMax H3 Generate Video"},
+      "widgets_values": ["2K", 5, "16:9", false]
+    },
+    {
+      "id": 3,
+      "type": "MiniMax H3 Preview Video",
+      "pos": [960, 20],
+      "size": [500, 600],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [{"name": "video_url", "type": "STRING", "link": 2}],
+      "outputs": [{"name": "file_path", "type": "STRING", "links": null, "slot_index": 0}],
+      "properties": {"Node name for S&R": "MiniMax H3 Preview Video"},
+      "widgets_values": []
+    }
+  ],
+  "links": [[1, 1, 0, 2, 0, "MINIMAX_H3_CONTENT"], [2, 2, 0, 3, 0, "STRING"]],
+  "groups": [],
+  "config": {},
+  "extra": {"ds": {"scale": 0.85, "offset": [0, 0]}, "frontendVersion": "1.42.8"},
+  "version": 0.4
+}
