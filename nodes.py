@@ -78,6 +78,7 @@ def _submit_and_wait(create_method, payload):
     task_id = str(response.get("task_id") or "")
     if not task_id:
         raise RuntimeError("MiniMax create response did not include task_id.")
+    print(f"[{NODE_PREFIX}] task_id={task_id}")
     final_payload = create_method.__self__.wait_task(task_id)
     return task_id, final_payload
 

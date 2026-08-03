@@ -106,7 +106,7 @@ class FakeClient:
         }
 
 
-def test_generate_node_builds_payload(monkeypatch):
+def test_generate_node_builds_payload(monkeypatch, capsys):
     fake = FakeClient()
     monkeypatch.setattr(nodes, "_client", lambda: fake)
     content = [{"type": "text", "text": "hello"}]
@@ -117,6 +117,7 @@ def test_generate_node_builds_payload(monkeypatch):
     assert response["ui"]["minimax_h3_cost"] == ["本次费用：¥4.00（约 571.43 积分）"]
     assert fake.payload["ratio"] == "16:9"
     assert fake.payload["aigc_watermark"] is False
+    assert "[MiniMax H3] task_id=task-1" in capsys.readouterr().out
 
 
 def test_generation_cost_includes_reference_video_and_extra_images():

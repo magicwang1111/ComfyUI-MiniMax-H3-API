@@ -70,17 +70,24 @@ def test_get_retries_transient_status():
     assert len(session.calls) == 2
 
 
-def test_wait_task_returns_success():
+def test_wait_task_returns_success_and_logs_status_changes(capsys):
     session = FakeSession([
         FakeResponse(200, {"task": {"id": "123", "status": "queued"}}),
+        FakeResponse(200, {"task": {"id": "123", "status": "queued"}}),
+        FakeResponse(200, {"task": {"id": "123", "status": "running"}}),
         FakeResponse(200, {"task": {"id": "123", "status": "succeeded", "content": {"url": "https://cdn/video.mp4"}}}),
     ])
     api = client.MiniMaxClient(config(), session=session, sleep=lambda _: None)
     result = api.wait_task("123")
     assert result["task"]["content"]["url"].endswith("video.mp4")
+    assert capsys.readouterr().out.splitlines() == [
+        "[MiniMax H3] task_id=123 status=queued",
+        "[MiniMax H3] task_id=123 status=running",
+        "[MiniMax H3] task_id=123 status=succeeded",
+    ]
 
 
-def test_wait_task_raises_task_error():
+def test_wait_task_raises_task_error(capsys):
     session = FakeSession([
         FakeResponse(200, {"task": {"id": "123", "status": "failed", "error": {"code": "1026", "message": "sensitive"}}}),
     ])
@@ -88,6 +95,7 @@ def test_wait_task_raises_task_error():
     with pytest.raises(client.MiniMaxAPIError, match="sensitive") as exc_info:
         api.wait_task("123")
     assert exc_info.value.code == "1026"
+    assert capsys.readouterr().out.strip() == "[MiniMax H3] task_id=123 status=failed"
 
 
 def test_api_error_includes_request_id():

@@ -187,10 +187,14 @@ class MiniMaxClient:
 
     def wait_task(self, task_id):
         start = self._monotonic()
+        last_status = None
         while True:
             payload = self.query_task(task_id)
             task = payload.get("task") or {}
             status = task.get("status")
+            if status != last_status:
+                print(f"[MiniMax H3] task_id={task_id} status={status or 'unknown'}")
+                last_status = status
             if status in TERMINAL_STATUSES:
                 if status == "succeeded":
                     return payload
@@ -200,4 +204,3 @@ class MiniMaxClient:
             if self._monotonic() - start >= self.config.max_wait_seconds:
                 raise TimeoutError(f"MiniMax task {task_id} did not finish within {self.config.max_wait_seconds} seconds.")
             self._sleep(self.config.poll_interval)
-
