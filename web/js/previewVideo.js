@@ -2,6 +2,7 @@ import { app, ANIM_PREVIEW_WIDGET } from "../../../scripts/app.js";
 import { createImageHost } from "../../../scripts/ui/imagePreview.js";
 
 const BASE_SIZE = 640;
+const LEGACY_CONTENT_INPUTS = new Set(["prompt_override"]);
 
 function chainCallback(object, property, callback) {
     const original = object[property];
@@ -80,11 +81,34 @@ function addVideoPreview(nodeType) {
     });
 }
 
+function removeLegacyContentInputs(node) {
+    if (!node.inputs || typeof node.removeInput !== "function") {
+        return;
+    }
+    for (let index = node.inputs.length - 1; index >= 0; index -= 1) {
+        if (LEGACY_CONTENT_INPUTS.has(node.inputs[index]?.name)) {
+            node.removeInput(index);
+        }
+    }
+}
+
+function addContentBuilderMigration(nodeType) {
+    chainCallback(nodeType.prototype, "onNodeCreated", function () {
+        removeLegacyContentInputs(this);
+    });
+    chainCallback(nodeType.prototype, "onConfigure", function () {
+        removeLegacyContentInputs(this);
+    });
+}
+
 app.registerExtension({
     name: "MiniMaxH3VideoPreview",
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name === "MiniMax H3 Preview Video") {
             addVideoPreview(nodeType);
+        }
+        if (nodeData.name === "MiniMax H3 Content Builder") {
+            addContentBuilderMigration(nodeType);
         }
     },
 });
