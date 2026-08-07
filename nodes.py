@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import urllib.parse
 
 import folder_paths
@@ -424,17 +425,25 @@ class MiniMaxH3PreviewVideo:
         os.makedirs(full_output_folder, exist_ok=True)
         file = f"{filename}_{counter:05}_.mp4"
         file_path = os.path.join(full_output_folder, file)
-        try:
-            with requests.get(video_url, stream=True, timeout=120) as response:
-                response.raise_for_status()
-                with open(file_path, "wb") as handle:
-                    for chunk in response.iter_content(chunk_size=1024 * 1024):
-                        if chunk:
-                            handle.write(chunk)
-        except Exception:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-            raise
+        hostname = urllib.parse.urlparse(video_url).hostname or ""
+        for attempt in range(4):
+            try:
+                with requests.Session() as session:
+                    if hostname == "oss-cn-shanghai.aliyuncs.com" or hostname.endswith(".oss-cn-shanghai.aliyuncs.com"):
+                        session.trust_env = False
+                    with session.get(video_url, stream=True, timeout=(15, 600)) as response:
+                        response.raise_for_status()
+                        with open(file_path, "wb") as handle:
+                            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                                if chunk:
+                                    handle.write(chunk)
+                break
+            except Exception:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                if attempt == 3:
+                    raise
+                time.sleep(2 ** attempt)
         preview_url = _local_media_url(file, subfolder, "output")
         return {
             "ui": {

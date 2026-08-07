@@ -173,6 +173,111 @@ def test_preview_uses_hidden_default_filename():
     assert nodes.DEFAULT_VIDEO_FILENAME_PREFIX.startswith("video/MiniMax_%year%")
 
 
+def test_preview_bypasses_proxy_for_minimax_oss(monkeypatch, tmp_path):
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def raise_for_status(self):
+            pass
+
+        def iter_content(self, chunk_size):
+            yield b"video"
+
+    class FakeSession:
+        def __init__(self):
+            self.trust_env = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url, **kwargs):
+            self.request = (url, kwargs)
+            return FakeResponse()
+
+    session = FakeSession()
+    monkeypatch.setattr(nodes.requests, "Session", lambda: session)
+    monkeypatch.setattr(nodes.folder_paths, "get_output_directory", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        nodes.folder_paths,
+        "get_save_image_path",
+        lambda prefix, output: (output, "test", 1, "", prefix),
+    )
+
+    nodes.MiniMaxH3PreviewVideo().download(
+        "https://algeng-video-infer.oss-cn-shanghai.aliyuncs.com/result.mp4"
+    )
+
+    assert session.trust_env is False
+    assert session.request[1]["timeout"] == (15, 600)
+    assert (tmp_path / "test_00001_.mp4").read_bytes() == b"video"
+
+
+def test_preview_retries_three_times_and_removes_partial_files(monkeypatch, tmp_path):
+    class FakeResponse:
+        def __init__(self, should_fail):
+            self.should_fail = should_fail
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def raise_for_status(self):
+            pass
+
+        def iter_content(self, chunk_size):
+            if self.should_fail:
+                yield b"partial"
+                raise nodes.requests.ConnectionError("download interrupted")
+            yield b"video"
+
+    class FakeSession:
+        def __init__(self, should_fail):
+            self.should_fail = should_fail
+            self.trust_env = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url, **kwargs):
+            return FakeResponse(self.should_fail)
+
+    attempts = []
+    sleeps = []
+
+    def new_session():
+        attempts.append(len(attempts) < 3)
+        return FakeSession(attempts[-1])
+
+    monkeypatch.setattr(nodes.requests, "Session", new_session)
+    monkeypatch.setattr(nodes.time, "sleep", sleeps.append)
+    monkeypatch.setattr(nodes.folder_paths, "get_output_directory", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        nodes.folder_paths,
+        "get_save_image_path",
+        lambda prefix, output: (output, "test", 1, "", prefix),
+    )
+
+    nodes.MiniMaxH3PreviewVideo().download(
+        "https://algeng-video-infer.oss-cn-shanghai.aliyuncs.com/result.mp4"
+    )
+
+    assert len(attempts) == 4
+    assert sleeps == [1, 2, 4]
+    assert (tmp_path / "test_00001_.mp4").read_bytes() == b"video"
+
+
 def test_duration_is_a_four_to_fifteen_second_list():
     expected = [str(value) for value in range(4, 16)]
     for node_class in (nodes.MiniMaxH3GenerateVideo, nodes.MiniMaxH3ContextIR):
